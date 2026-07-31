@@ -1,0 +1,31 @@
+{
+  "version": "1.0",
+  "title": "Inflation Explainer",
+  "resolution": {"width": 1280, "height": 720},
+  "fps": 30,
+  "theme": "default",
+  "scenes": [
+    {
+      "id": "scene1",
+      "duration": 3.0,
+      "background": "#f0f0f0",
+      "objects": [
+        {
+          "id": "bar",
+          "type": "BarChart",
+          "properties": {
+            "data": {"Inflation": 10},
+            "animate_to": {"Inflation": 50},
+            "easing": "linear",
+            "bar_width": 100,
+            "x": 500,
+            "y": 500
+          }
+        }
+      ]
+    }
+  ],
+  "narration": [
+    {"timestamp": 0.5, "text": "Inflation is rising."}
+  ]
+}

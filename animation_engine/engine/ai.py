@@ -6,12 +6,14 @@ import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from .animation import Animation
 from .objects import BaseObject
-from .renderer import SVGRenderer
 from .scene import Scene
+
+if TYPE_CHECKING:
+    from .renderer import SVGRenderer
 
 
 class AIModelClient(Protocol):

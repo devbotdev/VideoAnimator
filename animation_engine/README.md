@@ -2,31 +2,66 @@
 
 Initial project scaffold for a vector-based animation engine.
 
-## Setup
+## Dependencies
 
-1. Create a virtual environment:
-   ```powershell
-   python -m venv .venv
-   ```
-2. Activate it:
-   ```powershell
-   .\.venv\Scripts\Activate.ps1
-   ```
-3. Install dependencies:
-   ```powershell
-   pip install -r requirements.txt
-   ```
-4. Run the entry point:
-   ```powershell
-   python main.py
-   ```
+This engine requires the following native libraries to be installed:
+- Cairo (for SVG rendering)
+- FFmpeg (for MP4 export)
+
+Ensure these are installed and available in your system PATH.
+
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+```
+
+Run the entry point:
+
+```powershell
+python main.py
+```
+
+Run the test suite:
+
+```powershell
+python -m pytest
+```
 
 ## Renderer
 
-- Resolution: `1920x1080`
-- FPS: `30`
+Rendering is configured with `RenderConfig`:
 
-The renderer draws scene objects into SVG markup, converts each SVG frame into an image, and exports the resulting frame sequence as MP4 with `moviepy`.
+```python
+from engine import RenderConfig, SVGRenderer
+
+renderer = SVGRenderer(
+    RenderConfig(
+        width=1280,
+        height=720,
+        fps=30,
+        background="#ffffff",
+        codec="libx264",
+        quality=23,
+        preset="medium",
+        output_format="mp4",
+        enable_progress_reporting=True,
+    )
+)
+```
+
+The renderer draws scene objects into SVG markup, converts frames to RGB image arrays with CairoSVG, and exports MP4 files with MoviePy/FFmpeg. MP4 export streams frames through MoviePy instead of storing the full render in memory, which is better suited to longer projects. `render_frames(...)` is still available for tests and short debugging renders.
+
+Frame counts are deterministic: `frame_count = max(1, floor(duration * fps + 0.5))`, and exported video duration is exactly `frame_count / fps`. Negative and infinite durations are rejected.
+
+Optional debugging and audio:
+
+- Set `debug_export_frames=True` to write individual PNG frames. Use `debug_frames_dir=...` to choose the folder.
+- Set `enable_progress_reporting=False` for quiet test runs.
+- Set `audio_path=Path("narration.wav")` to attach narration to MP4 export. Missing audio files raise `FileNotFoundError` before rendering. Audio longer than the video is trimmed to the rendered duration; shorter audio is not looped.
+
+If CairoSVG/native Cairo, MoviePy/FFmpeg, or the configured audio file is unavailable, the renderer raises a helpful exception describing the missing dependency.
 
 ## File purposes
 
@@ -52,36 +87,102 @@ The renderer draws scene objects into SVG markup, converts each SVG frame into a
 
 ## Example
 
-Run `python main.py` to export `output/moving_rectangle.mp4`.
+Run the provided examples:
+
+- Export moving rectangle: `python main.py`
+- Export basic stick-figure animation: `python animation_engine\examples\basic_animation.py`
+
+Running the basic example will export `output/basic_animation.mp4`.
 
 For scene management, use `Scene`, `SceneManager`, `Camera`, `Timeline`, and `FadeTransition` from `engine`.
 
-## AI connection framework
+### Sequencing example
 
-The AI bridge is scaffolded in `engine/ai.py` and does not include any model integration yet. It expects an external client to return JSON like:
+```python
+from engine.objects import Rectangle
+from engine.scene import Scene
+from engine.timeline import Timeline
+
+scene = Scene(name="demo")
+rect = Rectangle(x=0, y=0, width=50, height=50)
+scene.add(rect)
+
+timeline = scene.timeline("main")
+timeline.animate(
+    0.0,
+    scene,
+    rect,
+    "x",
+    0.0,
+    200.0,
+    1.0,
+    delay=0.2,
+    repeat=1,
+    yoyo=True,
+)
+```
+
+## Formalized Plan Schema
+
+For structured animation generation, we now use a versioned JSON schema. This allows for validation of scene structure, object types, and allowed actions before passing the plan to the rendering engine.
+
+### Structure
 
 ```json
 {
-  "scene": "office",
-  "actions": [
-    { "object": "stickman", "action": "walk" }
+  "version": "1.0",
+  "title": "Animation Title",
+  "resolution": {"width": 1920, "height": 1080},
+  "fps": 30,
+  "theme": "default",
+  "scenes": [
+    {
+      "id": "scene1",
+      "duration": 5.0,
+      "background": "#ffffff",
+      "objects": [
+        {
+          "id": "obj1",
+          "type": "Rectangle",
+          "properties": {"x": 0, "y": 0, "width": 100, "height": 100}
+        }
+      ],
+      "actions": [
+        {
+          "start_time": 0.0,
+          "duration": 2.0,
+          "target_id": "obj1",
+          "action": "move",
+          "parameters": {"dx": 50, "dy": 50}
+        }
+      ]
+    }
+  ],
+  "narration": [
+    {"timestamp": 0.5, "text": "Narrator says something."}
   ]
 }
 ```
 
-### Exact next steps
+### Validation
 
-1. Implement a real provider by creating a class that satisfies `engine.ai.AIModelClient.generate(prompt)`.
-2. Register a scene factory in `engine.ai.SceneRegistry` for each scene name your model can emit, starting with `office`.
-3. Register action handlers with `engine.ai.register_default_action_handlers(...)` and add any new actions beside `walk`, `point`, and `wave`.
-4. Build named scene objects with `Scene.register_object(...)` so AI actions can target them by name.
-5. Call `AIEngine.execute_prompt(...)` once a model client is wired in, or `AIEngine.execute_plan(...)` if you already have decoded JSON.
+The engine validates this plan against an allowlist of supported object types and actions using an `ActionRegistry`. You can perform a dry-run validation of a plan without rendering.
 
-### Pointer map
+**Dry-run Validation:**
 
-| File | What to change |
-| --- | --- |
-| `engine/ai.py` | Add the real model client and any new action handlers. |
-| `engine/scene.py` | Register named objects for AI targets. |
-| `engine/stick_figure.py` | Extend the stick figure actions if new motion verbs are needed. |
-| `examples/ai_framework_example.py` | Replace the stub plan source with your model client when ready. |
+```python
+from engine.schema import Plan
+from engine.action_registry import ActionRegistry
+
+registry = ActionRegistry()
+registry.populate_defaults()
+
+plan = Plan.from_dict(data)
+plan.validate(registry)  # Raises ValueError if invalid
+print(plan.summary(registry))
+```
+
+- **Supported Object Types:** Rectangle, Circle, Text, StickFigure, Arrow, Group
+- **Supported Actions:** walk, point, wave, move, fade_in, fade_out, scale, rotate, draw, grow, highlight, shake, camera_pan, camera_zoom, camera_focus
+
+See `engine/schema.py` and `engine/action_registry.py` for full details. Use `Plan.from_dict(data)` to parse a plan and `plan.validate(registry)` to perform a dry-run validation.

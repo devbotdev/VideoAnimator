@@ -1,0 +1,33 @@
+{
+  "version": "1.0",
+  "title": "Sample Animation",
+  "resolution": {"width": 1920, "height": 1080},
+  "fps": 30,
+  "theme": "default",
+  "scenes": [
+    {
+      "id": "scene1",
+      "duration": 5.0,
+      "background": "#f0f0f0",
+      "objects": [
+        {
+          "id": "obj1",
+          "type": "Rectangle",
+          "properties": {"x": 100, "y": 100, "width": 200, "height": 100}
+        }
+      ],
+      "actions": [
+        {
+          "start_time": 0.0,
+          "duration": 2.0,
+          "target_id": "obj1",
+          "action": "move",
+          "parameters": {"dx": 100, "dy": 50}
+        }
+      ]
+    }
+  ],
+  "narration": [
+    {"timestamp": 0.5, "text": "Starting animation."}
+  ]
+}

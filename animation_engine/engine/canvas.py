@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Iterable
-from xml.sax.saxutils import escape
+from xml.sax.saxutils import escape, quoteattr
 
 from .camera import Camera
-from .objects import BaseObject, Circle, Line, Rectangle, Text
+from .objects import Arrow, BaseObject, Circle, Group, Line, Rectangle, Text, Polyline, Path
 from .stick_figure import StickFigure
 
 
@@ -41,11 +42,17 @@ class SVGCanvas:
         for obj in svg_objects:
             if obj.visibility:
                 elements.append(self._object_to_svg(obj))
+
+        content = "".join(elements)
+        if self.camera and self.camera.rotation != 0:
+            # Apply rotation around the camera center
+            content = f'<g transform="rotate({-self.camera.rotation} {self.camera.x} {self.camera.y})">{content}</g>'
+
         return (
             f'<svg xmlns="http://www.w3.org/2000/svg" '
             f'width="{self.width}" height="{self.height}" '
             f'viewBox="{" ".join(str(value) for value in self._view_box())}">'
-            + "".join(elements)
+            + content
             + "</svg>"
         )
 
@@ -70,20 +77,47 @@ class SVGCanvas:
             transforms.append(f"scale({obj.scale})")
         return " ".join(transforms)
 
-    def _style(self, obj: BaseObject, fill: str = "#222222", stroke: str = "none") -> str:
-        return f'opacity="{obj.opacity}" fill="{fill}" stroke="{stroke}"'
+    def _style_attrs(
+        self,
+        obj: BaseObject,
+        *,
+        fill: str | None = None,
+        stroke: str | None = None,
+        stroke_width: float | None = None,
+    ) -> str:
+        style = obj.style
+        attrs = {
+            "opacity": obj.opacity,
+            "fill": style.fill_color if fill is None else fill,
+            "stroke": style.stroke_color if stroke is None else stroke,
+            "stroke-width": style.stroke_width if stroke_width is None else stroke_width,
+        }
+        if style.line_cap is not None:
+            attrs["stroke-linecap"] = style.line_cap
+        if style.line_join is not None:
+            attrs["stroke-linejoin"] = style.line_join
+        return self._attrs(attrs)
+
+    def _attrs(self, attrs: dict[str, object]) -> str:
+        return " ".join(f"{name}={quoteattr(str(value))}" for name, value in attrs.items())
 
     def _object_to_svg(self, obj: BaseObject) -> str:
         if isinstance(obj, Circle):
             return self._circle_to_svg(obj)
         if isinstance(obj, Rectangle):
             return self._rectangle_to_svg(obj)
+        if isinstance(obj, Arrow):
+            return self._arrow_to_svg(obj)
         if isinstance(obj, Line):
             return self._line_to_svg(obj)
+        if isinstance(obj, Polyline):
+            return self._polyline_to_svg(obj)
+        if isinstance(obj, Path):
+            return self._path_to_svg(obj)
         if isinstance(obj, Text):
             return self._text_to_svg(obj)
-        if isinstance(obj, StickFigure):
-            return "".join(self._object_to_svg(part) for part in obj.parts())
+        if isinstance(obj, Group):
+            return self._group_to_svg(obj)
         raise TypeError(f"Unsupported object type: {type(obj)!r}")
 
     def _wrap(self, obj: BaseObject, element: str) -> str:
@@ -95,21 +129,40 @@ class SVGCanvas:
     def _circle_to_svg(self, obj: Circle) -> str:
         element = (
             f'<circle cx="0" cy="0" r="{obj.radius}" '
-            f'{self._style(obj)} />'
+            f'{self._style_attrs(obj)} />'
         )
         return self._wrap(obj, element)
 
     def _rectangle_to_svg(self, obj: Rectangle) -> str:
+        rounded = ""
+        if obj.corner_radius:
+            radius = max(0.0, obj.corner_radius)
+            rounded = f' rx="{radius}" ry="{radius}"'
         element = (
-            f'<rect x="0" y="0" width="{obj.width}" height="{obj.height}" '
-            f'{self._style(obj)} />'
+            f'<rect x="0" y="0" width="{obj.width}" height="{obj.height}"{rounded} '
+            f'{self._style_attrs(obj)} />'
         )
         return self._wrap(obj, element)
 
     def _line_to_svg(self, obj: Line) -> str:
         element = (
             f'<line x1="0" y1="0" x2="{obj.end_x}" y2="{obj.end_y}" '
-            f'stroke="#222222" stroke-width="2" opacity="{obj.opacity}" />'
+            f'{self._style_attrs(obj, fill="none")} />'
+        )
+        return self._wrap(obj, element)
+
+    def _polyline_to_svg(self, obj: Polyline) -> str:
+        points_attr = " ".join(f"{x},{y}" for x, y in obj.points)
+        element = (
+            f'<polyline points={quoteattr(points_attr)} '
+            f'{self._style_attrs(obj, fill="none")} />'
+        )
+        return self._wrap(obj, element)
+
+    def _path_to_svg(self, obj: Path) -> str:
+        element = (
+            f'<path d={quoteattr(obj.d)} '
+            f'{self._style_attrs(obj)} />'
         )
         return self._wrap(obj, element)
 
@@ -117,6 +170,63 @@ class SVGCanvas:
         content = escape(obj.content)
         element = (
             f'<text x="0" y="0" font-size="{obj.font_size}" '
-            f'fill="#222222" opacity="{obj.opacity}">{content}</text>'
+            f'font-family={quoteattr(obj.font_family)} '
+            f'font-weight={quoteattr(obj.font_weight)} '
+            f'text-anchor={quoteattr(obj.text_anchor)} '
+            f'dominant-baseline={quoteattr(obj.text_alignment)} '
+            f'{self._style_attrs(obj)}>{content}</text>'
         )
         return self._wrap(obj, element)
+
+    def _group_to_svg(self, obj: Group) -> str:
+        children = "".join(self._object_to_svg(child) for child in obj.children if child.visibility)
+        attrs: dict[str, object] = {}
+        transform = self._transform(obj)
+        if transform:
+            attrs["transform"] = transform
+        if obj.opacity != 1.0:
+            attrs["opacity"] = obj.opacity
+        if not attrs:
+            return f"<g>{children}</g>"
+        return f'<g {self._attrs(attrs)}>{children}</g>'
+
+    def _arrow_to_svg(self, obj: Arrow) -> str:
+        line = (
+            f'<line x1="{obj.start_x}" y1="{obj.start_y}" '
+            f'x2="{obj.end_x}" y2="{obj.end_y}" '
+            f'{self._style_attrs(obj, fill="none")} />'
+        )
+        head = self._arrowhead_to_svg(obj)
+        return self._wrap(obj, line + head)
+
+    def _arrowhead_to_svg(self, obj: Arrow) -> str:
+        dx = obj.end_x - obj.start_x
+        dy = obj.end_y - obj.start_y
+        length = math.hypot(dx, dy)
+        if length == 0:
+            return ""
+
+        size = max(0.0, obj.arrowhead_size)
+        if size == 0:
+            return ""
+
+        ux = dx / length
+        uy = dy / length
+        px = -uy
+        py = ux
+        base_x = obj.end_x - ux * size
+        base_y = obj.end_y - uy * size
+        half_width = size * 0.5
+        points = [
+            (obj.end_x, obj.end_y),
+            (base_x + px * half_width, base_y + py * half_width),
+            (base_x - px * half_width, base_y - py * half_width),
+        ]
+        point_attr = " ".join(f"{x},{y}" for x, y in points)
+        return (
+            f'<polygon points={quoteattr(point_attr)} '
+            f'fill={quoteattr(obj.stroke_color)} '
+            f'stroke={quoteattr(obj.stroke_color)} '
+            f'stroke-width={quoteattr(str(obj.stroke_width))} '
+            f'opacity={quoteattr(str(obj.opacity))} />'
+        )
