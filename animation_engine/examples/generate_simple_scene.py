@@ -19,12 +19,11 @@ def generate_and_print_plan():
     
     print("Generating simple scene plan...")
     try:
-        # Define a simple idea
-        idea = "Three people dancing in a way resembling the three body physics problem."
-        
-        # Follow the pipeline:
-        # Brief -> Narrative -> Visual Concept -> Storyboard -> Animation Plan -> Engine Schema
-        
+        # Load the script for the idea
+        script_path = ROOT / "assets" / "script"
+        with open(script_path, "r", encoding="utf-8") as f:
+            idea = f.read()
+
         brief = connection.generate_creative_brief(idea)
         narrative = connection.generate_narrative_structure(brief)
         visual_concept = connection.generate_visual_concept(narrative)
