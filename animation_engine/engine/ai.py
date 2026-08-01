@@ -6,7 +6,7 @@ import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from .animation import Animation
 from .objects import BaseObject
@@ -129,27 +129,30 @@ def register_default_action_handlers(registry: ActionRegistry) -> ActionRegistry
         distance = float(parameters.get("distance", 160.0))
         easing = str(parameters.get("easing", "ease-in-out"))
         walk = getattr(target, "walk", None)
-        if walk is None:
+        if not callable(walk):
             raise TypeError("Target object does not support walk().")
-        walk(scene.animation_manager, duration=duration, distance=distance, easing=easing)
+        walk_callable = cast(Callable[..., Any], walk)
+        walk_callable(scene.animation_manager, duration=duration, distance=distance, easing=easing)
 
     def _point(scene: Scene, target: BaseObject, parameters: Mapping[str, Any]) -> None:
         duration = float(parameters.get("duration", 1.0))
         arm = str(parameters.get("arm", "right"))
         easing = str(parameters.get("easing", "ease-out"))
         point = getattr(target, "point", None)
-        if point is None:
+        if not callable(point):
             raise TypeError("Target object does not support point().")
-        point(scene.animation_manager, duration=duration, arm=arm, easing=easing)
+        point_callable = cast(Callable[..., Any], point)
+        point_callable(scene.animation_manager, duration=duration, arm=arm, easing=easing)
 
     def _wave(scene: Scene, target: BaseObject, parameters: Mapping[str, Any]) -> None:
         duration = float(parameters.get("duration", 1.0))
         arm = str(parameters.get("arm", "right"))
         easing = str(parameters.get("easing", "ease-in-out"))
         wave = getattr(target, "wave", None)
-        if wave is None:
+        if not callable(wave):
             raise TypeError("Target object does not support wave().")
-        wave(scene.animation_manager, duration=duration, arm=arm, easing=easing)
+        wave_callable = cast(Callable[..., Any], wave)
+        wave_callable(scene.animation_manager, duration=duration, arm=arm, easing=easing)
 
     registry.register("walk", _walk)
     registry.register("point", _point)

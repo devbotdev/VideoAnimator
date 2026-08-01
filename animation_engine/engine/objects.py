@@ -249,7 +249,7 @@ class Text(BaseObject):
     font_family: str = "sans-serif"
     font_weight: str = "normal"
     text_anchor: str = "start"
-    text_alignment: str = "start"
+    text_alignment: str = "hanging"
 
     def apply_theme(self, theme: Theme) -> None:
         super().apply_theme(theme)

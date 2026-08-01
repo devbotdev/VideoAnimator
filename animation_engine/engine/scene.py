@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Iterable
+from copy import deepcopy
+from dataclasses import dataclass, field, fields
+from typing import Any, Iterable
 
 from .animation import Animation, AnimationManager, AnimationCallback, EasingMode
 from .camera import Camera
@@ -26,11 +27,17 @@ class Scene:
     named_objects: dict[str, BaseObject] = field(default_factory=dict)
     animation_manager: AnimationManager = field(default_factory=AnimationManager)
     timelines: dict[str, Timeline] = field(default_factory=lambda: {"main": Timeline()})
-    
-    # New fields
+
     duration: float | None = None
     elapsed_time: float = 0.0
-    
+    pacing: float = 1.0
+    reset_on_enter: bool = True
+    _initial_state: dict[str, Any] | None = field(default=None, init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        if self.pacing <= 0:
+            raise ValueError("Scene pacing must be positive.")
+
     def on_enter(self) -> None:
         """Called when entering the scene."""
         pass
@@ -49,6 +56,60 @@ class Scene:
         if self.duration is None:
             return False
         return self.elapsed_time >= self.duration
+
+    def capture_initial_state(self) -> None:
+        """Record a resettable snapshot of the scene state."""
+        if self._initial_state is not None:
+            return
+
+        named_object_indices: dict[str, int] = {}
+        for name, obj in self.named_objects.items():
+            for index, scene_obj in enumerate(self.objects):
+                if scene_obj is obj:
+                    named_object_indices[name] = index
+                    break
+            else:
+                raise ValueError(f"Named object '{name}' was not found in the scene object list.")
+
+        self._initial_state = {
+            "background": deepcopy(self.background),
+            "camera": deepcopy(self.camera),
+            "objects": [deepcopy(obj) for obj in self.objects],
+            "named_object_indices": named_object_indices,
+        }
+
+    def _restore_state(self, target: Any, initial_state: Any) -> None:
+        """Restore a dataclass-backed object to a previously captured state."""
+        for field_info in fields(initial_state):
+            if field_info.name.startswith("_"):
+                continue
+            setattr(target, field_info.name, deepcopy(getattr(initial_state, field_info.name)))
+
+    def reset(self) -> None:
+        """Reset the scene to its initial state and restart timing."""
+        if self._initial_state is None:
+            self.capture_initial_state()
+
+        self.elapsed_time = 0.0
+        self.animation_manager.clear()
+        self.animation_manager.elapsed_time = 0.0
+
+        for timeline in self.timelines.values():
+            timeline.reset()
+
+        self.background = deepcopy(self._initial_state["background"])
+        self._restore_state(self.camera, self._initial_state["camera"])
+
+        for index, initial_obj in enumerate(self._initial_state["objects"]):
+            self._restore_state(self.objects[index], initial_obj)
+
+        self.named_objects = {}
+        for name, index in self._initial_state["named_object_indices"].items():
+            self.named_objects[name] = self.objects[index]
+
+        if self.theme is not None:
+            for obj in self.objects:
+                obj.apply_theme(self.theme)
 
     def add(self, obj: BaseObject) -> BaseObject:
         """Add an object to the scene."""
@@ -71,7 +132,8 @@ class Scene:
 
     def extend(self, objects: Iterable[BaseObject]) -> None:
         """Add multiple objects to the scene."""
-        self.objects.extend(objects)
+        for obj in objects:
+            self.add(obj)
 
     def timeline(self, name: str = "main") -> Timeline:
         """Get or create a named timeline."""
@@ -142,12 +204,13 @@ class Scene:
 
     def update(self, delta_time: float) -> None:
         """Advance timelines and active animations."""
-        self.elapsed_time += delta_time
-        self.on_update(delta_time)
-        
+        scaled_delta_time = delta_time * self.pacing
+        self.elapsed_time += scaled_delta_time
+        self.on_update(scaled_delta_time)
+
         for timeline in self.timelines.values():
-            timeline.update(delta_time, self)
-        self.animation_manager.update(delta_time)
+            timeline.update(scaled_delta_time, self)
+        self.animation_manager.update(scaled_delta_time)
 
     def frame(self) -> SceneFrame:
         """Resolve the current renderable scene frame."""
@@ -162,16 +225,19 @@ class SceneManager:
     active_index: int = 0
     transition: Transition | None = None
     transition_target_index: int | None = None
-    
+    transition_source_index: int | None = None
+
     # Optional: default transition
     default_transition_type: type[Transition] = FadeTransition
     default_transition_duration: float = 1.0
 
     def add_scene(self, scene: Scene) -> Scene:
         """Register a scene with the manager."""
-        if not self.scenes:
-            scene.on_enter()
         self.scenes.append(scene)
+        scene.capture_initial_state()
+        if len(self.scenes) == 1:
+            scene.reset()
+            scene.on_enter()
         return scene
 
     @property
@@ -187,13 +253,20 @@ class SceneManager:
             raise IndexError("Transition target is out of range.")
         if index == self.active_index:
             return
-        
+
         if transition is None:
             transition = self.default_transition_type(duration=self.default_transition_duration)
-            
+
+        if self.scenes:
+            self.current_scene.on_exit()
+
         self.transition = transition
         self.transition_target_index = index
-        self.scenes[index].on_enter()
+        self.transition_source_index = self.active_index
+        target_scene = self.scenes[index]
+        if target_scene.reset_on_enter:
+            target_scene.reset()
+        target_scene.on_enter()
 
     def update(self, delta_time: float) -> None:
         """Update the active scene, transition, and handle sequencing."""
@@ -217,10 +290,10 @@ class SceneManager:
             self.transition.update(delta_time)
             
             if self.transition.completed:
-                self.current_scene.on_exit()
                 self.active_index = self.transition_target_index
                 self.transition = None
                 self.transition_target_index = None
+                self.transition_source_index = None
 
     def frame(self) -> SceneFrame:
         """Return the frame to render for the current manager state."""

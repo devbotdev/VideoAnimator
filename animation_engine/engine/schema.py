@@ -21,7 +21,12 @@ class ActionSpec:
     def from_dict(cls, data: Dict[str, Any]) -> "ActionSpec":
         if data["action"] not in ALLOWED_ACTIONS:
             raise ValueError(f"Action '{data['action']}' is not allowed.")
-        return cls(**data)
+        
+        # Filter allowed fields
+        allowed_fields = {"start_time", "duration", "target_id", "action", "parameters"}
+        filtered_data = {k: v for k, v in data.items() if k in allowed_fields}
+        
+        return cls(**filtered_data)
 
 @dataclass
 class ObjectSpec:
@@ -44,9 +49,15 @@ class SceneSpec:
     camera: Dict[str, Any] = field(default_factory=dict)
     objects: List[ObjectSpec] = field(default_factory=list)
     actions: List[ActionSpec] = field(default_factory=list)
+    pacing: float = 1.0
+    reset_on_enter: bool = True
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "SceneSpec":
+        pacing = data.get("pacing", 1.0)
+        if pacing <= 0:
+            raise ValueError("Scene pacing must be positive.")
+
         return cls(
             id=data["id"],
             duration=data["duration"],
@@ -54,6 +65,8 @@ class SceneSpec:
             camera=data.get("camera", {}),
             objects=[ObjectSpec.from_dict(o) for o in data.get("objects", [])],
             actions=[ActionSpec.from_dict(a) for a in data.get("actions", [])],
+            pacing=pacing,
+            reset_on_enter=data.get("reset_on_enter", True),
         )
 
 @dataclass
