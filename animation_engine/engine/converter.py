@@ -38,14 +38,47 @@ def plan_to_scene_manager(plan: Plan) -> SceneManager:
             style = dict(obj_spec.style)
             
             # Map common properties to style
+            # TODO: Should we validate that these are NOT in properties, 
+            # and that all properties are valid?
+            
+            # Clean up known invalid AI-generated properties
+            if "position" in properties:
+                properties.pop("position")
+
+            # Validate allowed properties
+            allowed_fields = set(obj_class.__dataclass_fields__.keys())
+            if "style" in allowed_fields:
+                allowed_fields.remove("style")
+            
+            # Allow mapped properties to exist in properties,
+            # but only if they are not explicitly forbidden or if they are to be mapped.
+            # Actually, the simplest check is to ensure that anything in `properties`
+            # is either in `allowed_fields` OR is a property we know we map to style.
+            
+            mapped_to_style = {"color", "stroke_color", "fill", "fill_color", "text", "font_color", "style", "stroke"}
+            
+            invalid_properties = [k for k in properties.keys() 
+                                  if k not in allowed_fields and k not in mapped_to_style]
+            
+            if invalid_properties:
+                raise ValueError(f"Invalid properties for {obj_class.__name__}: {invalid_properties}")
+            
+            # Now perform the mapping
+            if "style" in properties:
+                val = properties.pop("style")
+                if isinstance(val, dict):
+                    style.update(val)
             if "color" in properties:
                 style["fill_color"] = properties.pop("color")
+            if "stroke" in properties:
+                style["stroke_color"] = properties.pop("stroke")
             if "stroke_color" in properties:
                 style["stroke_color"] = properties.pop("stroke_color")
             if "fill" in properties:
                 style["fill_color"] = properties.pop("fill")
             if "fill_color" in properties:
                 style["fill_color"] = properties.pop("fill_color")
+
             
             # Specific mappings
             if obj_class is Text:
@@ -54,9 +87,8 @@ def plan_to_scene_manager(plan: Plan) -> SceneManager:
                 if "font_color" in properties:
                     style["fill_color"] = properties.pop("font_color")
             
-            # Filter properties that the object doesn't support
-            allowed_fields = set(obj_class.__dataclass_fields__.keys())
-            filtered_properties = {k: v for k, v in properties.items() if k in allowed_fields}
+            # The remaining properties should be valid as we already checked
+            filtered_properties = properties
             
             obj = obj_class(**filtered_properties)
             # Apply style if the object accepts it (BaseObject defines style)

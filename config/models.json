@@ -1,0 +1,10 @@
+{
+  "google": {
+    "director": "gemini-3.1-flash-lite",
+    "engineer": "gemini-3.1-flash-lite"
+  },
+  "local": {
+    "director": "Qwen/Qwen2.5-7B-Instruct-GGUF:Q4_K_M",
+    "engineer": "Qwen/Qwen2.5-Coder-7B-Instruct-GGUF:Q4_K_M"
+  }
+}

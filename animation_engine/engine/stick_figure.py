@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Literal
 
 from .animation import Animation, AnimationManager, EasingMode, Keyframe, _keyframe_animation
 from .objects import BaseObject, Circle, Line, Group, Style
+from .theme import DEFAULT_THEME
 
 if TYPE_CHECKING:
     from .canvas import SVGCanvas
@@ -26,10 +27,10 @@ class StickFigure(Group):
     head_gap: float = 18.0
     arm_swing: float = 30.0
     leg_swing: float = 25.0
-    
-    stroke_color: str = "#222222"
-    stroke_width: float = 2.0
-    
+
+    stroke_color: str = DEFAULT_THEME.foreground_color
+    stroke_width: float = DEFAULT_THEME.stroke_width
+
     head: Circle = field(init=False)
     body: Line = field(init=False)
     left_arm: Line = field(init=False)
@@ -39,16 +40,22 @@ class StickFigure(Group):
 
     def __post_init__(self) -> None:
         super().__post_init__()
-        
-        style = Style(stroke_color=self.stroke_color, stroke_width=self.stroke_width, fill_color="none")
-        
+
+        style = Style(
+            stroke_color=self.stroke_color,
+            stroke_width=self.stroke_width,
+            fill_color="none",
+            line_cap="round",
+            line_join="round",
+        )
+
         self.head = Circle(radius=self.head_radius, style=style)
         self.body = Line(end_x=0.0, end_y=self.body_length, style=style)
         self.left_arm = Line(end_x=-self.arm_length, end_y=0.0, style=style)
         self.right_arm = Line(end_x=self.arm_length, end_y=0.0, style=style)
         self.left_leg = Line(end_x=-self.leg_length * 0.25, end_y=self.leg_length, style=style)
         self.right_leg = Line(end_x=self.leg_length * 0.25, end_y=self.leg_length, style=style)
-        
+
         self.extend([self.head, self.body, self.left_arm, self.right_arm, self.left_leg, self.right_leg])
         self._sync_parts()
 

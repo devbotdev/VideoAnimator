@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Iterable
 
-from .theme import Theme
+from .theme import Theme, DEFAULT_THEME
 
 if TYPE_CHECKING:
     from .animation import Animation, AnimationCallback
@@ -13,9 +13,24 @@ if TYPE_CHECKING:
 
 @dataclass
 class Style:
-    """Reusable visual style information for engine objects."""
+    """Reusable visual style information for engine objects.
 
-    fill_color: str = "#222222"
+    `fill_color`, `stroke_color`, and `stroke_width` default either to
+    `DEFAULT_THEME`'s values or to the structural "none"/0.0 markers used
+    by line-type shapes ("none"/0.0 are rendering keywords -- "no stroke"
+    -- not colors a theme would ever supply differently, so they stay
+    literal). `BaseObject.apply_theme()` compares a style's current value
+    against these same `DEFAULT_THEME` values to detect whether it is
+    still at its engine default and safe to re-theme, so a caller's
+    explicit choices are always preserved.
+
+    NOTE: `line_cap` / `line_join` are rendered by the (not editable here)
+    SVGCanvas layer; this refactor sets them to "round" on line-type
+    shapes for a softer, more contemporary stroke, assuming that plumbing
+    already exists since the fields predate this change.
+    """
+
+    fill_color: str = DEFAULT_THEME.foreground_color
     stroke_color: str = "none"
     stroke_width: float = 0.0
     opacity: float = 1.0
@@ -141,11 +156,27 @@ class BaseObject:
         self.opacity = opacity
 
     def apply_theme(self, theme: Theme) -> None:
-        """Apply theme defaults."""
-        if self.style.stroke_width == 0.0:
-            self.style.stroke_width = theme.stroke_width
-        if self.style.stroke_color == "none":
-            self.style.stroke_color = theme.foreground_color
+        """Resolve style values still at their engine defaults using `theme`.
+
+        Objects fall into two kinds, distinguished by whether they have a
+        fill:
+        - Filled shapes (`fill_color != "none"`, e.g. Circle/Rectangle/
+          Text/Path) inherit their fill from the theme's ink color and are
+          left stroke-free, which keeps flat shapes calm and uncluttered.
+        - Stroke-based shapes (`fill_color == "none"`, e.g. Line/Polyline/
+          Arrow) inherit their stroke color and width instead.
+        Either way, a value the caller has already customized away from
+        the engine default is left untouched -- explicit choices always
+        win over theme defaults.
+        """
+        if self.style.fill_color == "none":
+            if self.style.stroke_color == DEFAULT_THEME.foreground_color:
+                self.style.stroke_color = theme.foreground_color
+            if self.style.stroke_width == DEFAULT_THEME.stroke_width:
+                self.style.stroke_width = theme.stroke_width
+        else:
+            if self.style.fill_color == DEFAULT_THEME.foreground_color:
+                self.style.fill_color = theme.foreground_color
 
     def animate(
         self,
@@ -197,7 +228,7 @@ class BaseObject:
 class Circle(BaseObject):
     """Circular object definition."""
 
-    radius: float = 1.0
+    radius: float = 50.0
 
 
 @dataclass
@@ -208,13 +239,30 @@ class Rectangle(BaseObject):
     height: float = 1.0
     corner_radius: float = 0.0
 
+    def apply_theme(self, theme: Theme) -> None:
+        super().apply_theme(theme)
+        # Subtly rounded corners are a core part of the engine's modern,
+        # minimalist look. Only touch it if the caller left it at the
+        # engine default (0.0 == sharp corners); an explicit value always
+        # wins. NOTE: this assumes the rendering layer (SVGCanvas, not
+        # editable here) already maps `corner_radius` onto an SVG rect's
+        # rx/ry -- that plumbing predates this refactor.
+        if self.corner_radius == 0.0:
+            self.corner_radius = theme.radius("small")
+
 
 @dataclass
 class Line(BaseObject):
     """Line object definition."""
 
     style: Style = field(
-        default_factory=lambda: Style(fill_color="none", stroke_color="#222222", stroke_width=2.0)
+        default_factory=lambda: Style(
+            fill_color="none",
+            stroke_color=DEFAULT_THEME.foreground_color,
+            stroke_width=DEFAULT_THEME.stroke_width,
+            line_cap="round",
+            line_join="round",
+        )
     )
     end_x: float = 0.0
     end_y: float = 0.0
@@ -225,7 +273,13 @@ class Polyline(BaseObject):
     """Polyline object definition."""
 
     style: Style = field(
-        default_factory=lambda: Style(fill_color="none", stroke_color="#222222", stroke_width=2.0)
+        default_factory=lambda: Style(
+            fill_color="none",
+            stroke_color=DEFAULT_THEME.foreground_color,
+            stroke_width=DEFAULT_THEME.stroke_width,
+            line_cap="round",
+            line_join="round",
+        )
     )
     points: list[tuple[float, float]] = field(default_factory=list)
 
@@ -235,7 +289,11 @@ class Path(BaseObject):
     """Path object definition."""
 
     style: Style = field(
-        default_factory=lambda: Style(fill_color="#222222", stroke_color="none", stroke_width=0.0)
+        default_factory=lambda: Style(
+            fill_color=DEFAULT_THEME.foreground_color,
+            stroke_color="none",
+            stroke_width=0.0,
+        )
     )
     d: str = ""
 
@@ -245,16 +303,18 @@ class Text(BaseObject):
     """Text object definition."""
 
     content: str = ""
-    font_size: float = 12.0
+    font_size: float = DEFAULT_THEME.typography_scale["medium"]
     font_family: str = "sans-serif"
     font_weight: str = "normal"
     text_anchor: str = "start"
-    text_alignment: str = "hanging"
+    text_alignment: str = "start"
 
     def apply_theme(self, theme: Theme) -> None:
         super().apply_theme(theme)
         if self.font_family == "sans-serif":
             self.font_family = theme.font_family
+        if self.font_size == DEFAULT_THEME.typography_scale["medium"]:
+            self.font_size = theme.font_size("medium")
 
 
 @dataclass
@@ -283,7 +343,13 @@ class Arrow(BaseObject):
     """Line with an arrowhead."""
 
     style: Style = field(
-        default_factory=lambda: Style(fill_color="none", stroke_color="#222222", stroke_width=2.0)
+        default_factory=lambda: Style(
+            fill_color="none",
+            stroke_color=DEFAULT_THEME.foreground_color,
+            stroke_width=DEFAULT_THEME.stroke_width,
+            line_cap="round",
+            line_join="round",
+        )
     )
     start_x: float = 0.0
     start_y: float = 0.0

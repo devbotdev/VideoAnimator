@@ -114,6 +114,13 @@ class ActionRegistry:
             extra_parameters=["distance", "easing", "start_time"],
         )
         self.register(
+            "move",
+            {"duration": float},
+            ["BaseObject", "Rectangle", "Circle", "Line", "Polyline", "Path", "Text", "Group", "StickFigure", "Arrow"],
+            lambda manager, t, duration, start_time=None, **_kwargs: _move(manager, t, duration, start_time=start_time, x=_kwargs.get("x"), y=_kwargs.get("y"), dx=_kwargs.get("dx"), dy=_kwargs.get("dy")),
+            extra_parameters=["x", "y", "dx", "dy", "start_time"],
+        )
+        self.register(
             "point",
             {"duration": float},
             ["StickFigure"],

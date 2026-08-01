@@ -11,12 +11,37 @@ logger = logging.getLogger("pipeline")
 class PipelineContext:
     """Shared state container for pipeline stages."""
     data: dict[str, Any] = field(default_factory=dict)
+    debug_enabled: bool = False
+    debug_dir: str = "debug_output"
 
     def set(self, key: str, value: Any) -> None:
         self.data[key] = value
 
     def get(self, key: str, default: Any = None) -> Any:
         return self.data.get(key, default)
+
+    def save_debug_data(self, stage_name: str, data: Any) -> None:
+        if not self.debug_enabled:
+            return
+        
+        import os
+        import json
+        from dataclasses import asdict, is_dataclass
+        
+        def _serialize(obj):
+            if is_dataclass(obj):
+                return asdict(obj)
+            try:
+                return str(obj)
+            except Exception:
+                return f"Non-serializable: {type(obj)}"
+            
+        os.makedirs(self.debug_dir, exist_ok=True)
+        file_path = os.path.join(self.debug_dir, f"{stage_name.replace(' ', '_').lower()}.json")
+        
+        with open(file_path, "w") as f:
+            json.dump(data, f, indent=2, default=_serialize)
+        logger.info(f"Saved debug data for stage '{stage_name}' to {file_path}")
 
 @runtime_checkable
 class PipelineStage(Protocol):

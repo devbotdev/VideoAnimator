@@ -19,8 +19,13 @@ class SVGCanvas:
     width: int = 1920
     height: int = 1080
     background: str = "#ffffff"
+    background_color: str | None = None
     camera: Camera | None = None
     objects: list[BaseObject] = field(default_factory=list)
+
+    def __post_init__(self):
+        if self.background_color is not None:
+            self.background = self.background_color
 
     def add(self, obj: BaseObject) -> BaseObject:
         """Add an object to the canvas."""
@@ -30,6 +35,21 @@ class SVGCanvas:
     def extend(self, objects: Iterable[BaseObject]) -> None:
         """Add multiple objects to the canvas."""
         self.objects.extend(objects)
+
+    def render(self, obj: BaseObject) -> None:
+        """Render an object (or group of objects) into the canvas."""
+        if isinstance(obj, Group):
+            self.extend(obj.children)
+        else:
+            self.add(obj)
+
+    def save(self, path: str | Path) -> None:
+        """Save the canvas as an SVG file."""
+        from pathlib import Path
+        output_path = Path(path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(self.to_svg())
 
     def clear(self) -> None:
         """Remove all objects from the canvas."""

@@ -19,7 +19,25 @@ def generate_and_print_plan():
     
     print("Generating simple scene plan...")
     try:
-        plan_dict = connection.generate_simple_scene_plan()
+        # Define a simple idea
+        idea = "Three people dancing in a way resembling the three body physics problem."
+        
+        # Follow the pipeline:
+        # Brief -> Narrative -> Visual Concept -> Storyboard -> Animation Plan -> Engine Schema
+        
+        brief = connection.generate_creative_brief(idea)
+        narrative = connection.generate_narrative_structure(brief)
+        visual_concept = connection.generate_visual_concept(narrative)
+        storyboard = connection.generate_storyboard(visual_concept)
+        animation_plan = connection.generate_animation_plan(storyboard)
+        plan_dict = connection.translate_to_engine_schema(animation_plan)
+        
+        # Validate and repair if necessary
+        try:
+            Plan.from_dict(plan_dict)
+        except Exception as e:
+            print(f"Plan validation failed, attempting repair: {e}")
+            plan_dict = connection.repair_plan(plan_dict, str(e))
         
         # Ensure version is present
         if "version" not in plan_dict:
@@ -32,7 +50,10 @@ def generate_and_print_plan():
         # Need to know the total duration from the plan
         total_duration = sum(scene.duration for scene in plan.scenes)
         
-        renderer = SVGRenderer(width=plan.resolution["width"], height=plan.resolution["height"], fps=plan.fps)
+        # Use existing render config or default if needed
+        from engine.renderer import RenderConfig
+        config = RenderConfig(width=plan.resolution["width"], height=plan.resolution["height"], fps=plan.fps)
+        renderer = SVGRenderer(config=config)
         output_path = Path("output") / "generated_scene.mp4"
         renderer.export_scene_manager_mp4(output_path, manager, total_duration)
         
